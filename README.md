@@ -1,7 +1,7 @@
 <h1 align="center">Hi 👋, I'm Roy Li</h1>
 <h3 align="center">Full Stack Web Developer / LLM Applications Developer / Machine Learning Engineer</h3>
 
-<p align="left"> <img src="https://komarev.com/ghpvc/?username=fs0c13ty&label=Profile%20views&color=0e75b6&style=flat" alt="fs0c13ty" /> </p>
+<p align="center"> <img src="https://komarev.com/ghpvc/?username=fs0c13ty&label=Profile%20views&color=0e75b6&style=flat" alt="fs0c13ty" /> </p>
 
 - 📫 How to reach me **roy.songzhe.li@gmail.com**
 
