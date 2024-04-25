@@ -3,8 +3,6 @@
 
 <p align="left"> <img src="https://komarev.com/ghpvc/?username=fs0c13ty&label=Profile%20views&color=0e75b6&style=flat" alt="fs0c13ty" /> </p>
 
-<p align="left"> <a href="https://github.com/ryo-ma/github-profile-trophy"><img src="https://github-profile-trophy.vercel.app/?username=fs0c13ty" alt="fs0c13ty" /></a> </p>
-
 - 📫 How to reach me **roy.songzhe.li@gmail.com**
 
 - 📄 Know about my experiences [https://github.com/fs0c13ty-iwnl/WhoAmI/blob/main/Resume_Songzhe(Roy)Li.pdf](https://github.com/fs0c13ty-iwnl/WhoAmI/blob/main/Resume_Songzhe(Roy)Li.pdf)
