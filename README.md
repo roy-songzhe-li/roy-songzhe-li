@@ -5,7 +5,7 @@
 
 - 📫 How to reach me **roy.songzhe.li@gmail.com**
 
-- 📄 Know about my experiences [https://github.com/fs0c13ty-iwnl/WhoAmI/blob/main/Resume_Songzhe(Roy)Li.pdf](https://github.com/fs0c13ty-iwnl/WhoAmI/blob/main/Resume_Songzhe(Roy)Li.pdf)
+- 📄 Know about my experiences [https://roy-li.dev/]
 
 <h3 align="left">Connect with me:</h3>
 <p align="left">
