@@ -1,5 +1,5 @@
 <h1 align="center">Hi 👋, I'm Roy Li</h1>
-<h3 align="center">Full Stack Web Developer / AI Engineer</h3>
+<h3 align="center">Full Stack Developer / AI Engineer</h3>
 
 <p align="center"> <img src="https://komarev.com/ghpvc/?username=fs0c13ty&label=Profile%20views&color=0e75b6&style=flat" alt="fs0c13ty" /> </p>
 
