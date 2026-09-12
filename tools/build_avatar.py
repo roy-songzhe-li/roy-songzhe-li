@@ -1,22 +1,25 @@
-"""Turn a GitHub avatar into a green-phosphor, dithered pixel portrait.
+"""Redraw a GitHub avatar the way a terminal would: as character-cell block art.
 
-The reference look (a cool-retro-term screenshot) keeps the subject at full
-phosphor brightness, drops outlines to near-black and leaves the backdrop as a
-mid-tone dither, so the tones are remapped explicitly rather than left to the
-avatar's own luminance.
+The reference screenshot is not a dithered bitmap. Zoomed in, the portrait is a
+coarse grid of wide, short terminal character cells, each filled with a single
+uniform shade texture - the ASCII shade characters. The mosaic quality comes
+from that blockiness, so this renders cells rather than dithering pixels.
+
+Measured from the reference: 20.4px vertical pitch (20/20/21/20/21/20...), 8px
+horizontal pitch, about 53x24 cells over the portrait's ~427x477px area.
 """
-import math
 import sys
 from PIL import Image, ImageDraw, ImageOps
 
-RAMP = [(48, 95, 39), (91, 169, 74), (123, 189, 87), (222, 253, 192), (227, 243, 211)]
-SOURCE_CELLS = 104
-DITHER_WIDTH, DITHER_HEIGHT = 260, 289
-SCALE = 2
-CELL_BAND_PERIOD = 23
-BG_TOLERANCE = 32    # flood-fill tolerance for the avatar's flat backdrop
+COLS, ROWS = 53, 24
+CELL_W, CELL_H = 8, 20          # the terminal's font advance and line pitch
+DOT = 2                         # shade-pattern dot size inside a cell
 
-TONE_OUTLINE, TONE_MIDTONE, TONE_SUBJECT, TONE_BACKDROP = 12, 88, 246, 160
+# Three phosphor anchors sampled from the reference: outline, backdrop, subject.
+DARK, MID, LIGHT = (62, 116, 50), (126, 192, 96), (232, 243, 214)
+
+BG_TOLERANCE = 32               # flood-fill tolerance for the avatar's flat backdrop
+TONE_OUTLINE, TONE_MIDTONE, TONE_SUBJECT, TONE_BACKDROP = 10, 96, 250, 150
 SHADOW_CUTOFF, MIDTONE_CUTOFF = 70, 150
 
 
@@ -41,56 +44,77 @@ def backdrop_mask(image):
 
 
 def remap_tones(grey):
-    """Flatten the avatar's tones onto four deliberate phosphor levels."""
-    lut = [
+    """Flatten the avatar's tones onto deliberate phosphor levels."""
+    return grey.point([
         TONE_OUTLINE if v < SHADOW_CUTOFF else TONE_MIDTONE if v < MIDTONE_CUTOFF else TONE_SUBJECT
         for v in range(256)
-    ]
-    return grey.point(lut)
+    ])
 
 
-def ordered_dither(tones):
-    """Quantize with a stable 4x4 screen-door matrix instead of diffusion noise."""
-    bayer = (
-        (0, 8, 2, 10),
-        (12, 4, 14, 6),
-        (3, 11, 1, 9),
-        (15, 7, 13, 5),
-    )
-    pixels = []
-    for y in range(tones.height):
-        for x in range(tones.width):
-            scaled = tones.getpixel((x, y)) * (len(RAMP) - 1) / 255
-            lower = min(math.floor(scaled), len(RAMP) - 1)
-            threshold = (bayer[y % 4][x % 4] + 0.5) / 16
-            pixels.append(RAMP[min(lower + (scaled - lower > threshold), len(RAMP) - 1)])
-    result = Image.new("RGB", tones.size)
-    result.putdata(pixels)
-    return result
+def shade_for(tone):
+    """Pick the (background, foreground, density) a cell of this tone is drawn with.
+
+    Two segments - dark-to-backdrop, then backdrop-to-subject - each stepped in
+    quarters, which is what the four ASCII shade characters give you.
+    """
+    level = round(tone / 255 * 8)
+    if level <= 4:
+        return DARK, MID, level / 4
+    else:
+        return MID, LIGHT, (level - 4) / 4
 
 
-def apply_character_bands(art):
-    """Reproduce the darker baseline at the bottom of each terminal character row."""
-    pixels = art.load()
-    for y in range(art.height):
-        phase = y % CELL_BAND_PERIOD
-        factor = 0.92 if phase == CELL_BAND_PERIOD - 1 else 0.97 if phase == 0 else 1.0
-        if factor < 1:
-            for x in range(art.width):
-                pixels[x, y] = tuple(round(channel * factor) for channel in pixels[x, y])
-    return art
+def draw_block(draw, left, top, height, tone):
+    """Fill one block with a single uniform shade texture.
+
+    Every dot row carries the same number of dots and only its phase rotates, the
+    way the ASCII shade characters are drawn. That matters: a 2D dither leaves
+    some rows empty, which makes the block ripple vertically and drowns out the
+    inter-row baseline. In the reference a backdrop block averages dead flat
+    horizontally, with the row line as the only vertical structure.
+    """
+    background, foreground, density = shade_for(tone)
+    draw.rectangle((left, top, left + CELL_W - 1, top + height - 1), background)
+    columns = CELL_W // DOT
+    per_row = round(density * columns)
+    if per_row:
+        for row in range(top // DOT, (top + height) // DOT):
+            for column in range(columns):
+                if (column + row * 2) % columns < per_row:
+                    x, y = left + column * DOT, row * DOT
+                    draw.rectangle((x, y, x + DOT - 1, y + DOT - 1), foreground)
+
+
+def draw_cell(draw, left, top, upper_tone, lower_tone):
+    """Draw one character cell, splitting it into half blocks when the halves differ.
+
+    This is the half-block trick every terminal image renderer uses: it keeps the
+    character-cell blockiness while recovering the vertical detail that 24 rows
+    alone would throw away.
+    """
+    half = CELL_H // 2
+    if shade_for(upper_tone) == shade_for(lower_tone):
+        draw_block(draw, left, top, CELL_H, upper_tone)
+    else:
+        draw_block(draw, left, top, half, upper_tone)
+        draw_block(draw, left, top + half, CELL_H - half, lower_tone)
 
 
 def main(source, target):
     avatar = Image.open(source).convert("RGB")
     tones = remap_tones(ImageOps.grayscale(avatar))
     tones.paste(Image.new("L", avatar.size, TONE_BACKDROP), (0, 0), backdrop_mask(avatar))
-    tones = tones.resize((SOURCE_CELLS, SOURCE_CELLS), Image.Resampling.LANCZOS)
-    tones = tones.resize((DITHER_WIDTH, DITHER_HEIGHT), Image.Resampling.BILINEAR)
-    art = ordered_dither(tones).resize(
-        (DITHER_WIDTH * SCALE, DITHER_HEIGHT * SCALE), Image.Resampling.NEAREST
-    )
-    art = apply_character_bands(art)
+    cells = tones.resize((COLS, ROWS * 2), Image.Resampling.BOX)  # two samples per cell
+
+    art = Image.new("RGB", (COLS * CELL_W, ROWS * CELL_H))
+    draw = ImageDraw.Draw(art)
+    for row in range(ROWS):
+        for col in range(COLS):
+            draw_cell(draw, col * CELL_W, row * CELL_H,
+                      cells.getpixel((col, row * 2)), cells.getpixel((col, row * 2 + 1)))
+
+    # The inter-row baseline is drawn in build_crt after the bloom, so the
+    # glow cannot smear it into a soft undulation.
     art.save(target)
     print(f"wrote {target} {art.size}")
 

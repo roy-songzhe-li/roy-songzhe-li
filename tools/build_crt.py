@@ -1,4 +1,5 @@
 """Age the flat terminal still into a curved, glowing CRT and animate it as a GIF."""
+import math
 import pathlib
 import random
 import subprocess
@@ -19,6 +20,19 @@ CORNER_RADIUS = 25
 BEZEL = "#0a0a0a"
 NOISE_SEED = 0x435254
 PORTRAIT_BOX = (18, 14, 462, 506)
+# The dark baseline the terminal leaves between character rows. Measured on the
+# reference face strip: a crisp 3px line every 20px, about 24% down. It is laid
+# in after the bloom so the glow cannot smear it, but before the warp so it
+# still bends with the tube.
+PORTRAIT_ART_BOX = (22, 14, 446, 494)
+ROW_PITCH, ROW_LINE_PX, ROW_LINE_DARKEN = 20, 3, 0.85
+# One refresh band sweeps down the tube per loop. Measured off the reference:
+# it enters near y=20 at frame 8 and reaches y=499 by frame 39, ~16.5px/frame,
+# peaking around +6.5 luma when read through a 13px window - never a hard bar.
+SCAN_FIRST_FRAME, SCAN_LAST_FRAME = 7, 38
+SCAN_Y_START, SCAN_Y_END = 20, 499
+SCAN_HALF_HEIGHT, SCAN_PEAK = 26, 6
+SCAN_EASE = 1.2                 # the reference sweep starts slow and accelerates
 SWATCH_MOTION_BOX = (486, 196, 724, 252)
 PORTRAIT_TONE_POINTS = (
     (0, 0), (80, 71), (119, 117), (141, 136), (152, 145), (158, 152), (161, 161),
@@ -157,6 +171,40 @@ def motion_strength(base, mask):
     return strengths
 
 
+def apply_character_rows(screen):
+    """Draw the dark baseline between the portrait's character rows."""
+    left, top, right, bottom = PORTRAIT_ART_BOX
+    pixels = screen.load()
+    for line in range(top + ROW_PITCH - ROW_LINE_PX, bottom, ROW_PITCH):
+        for y in range(line, min(line + ROW_LINE_PX, bottom)):
+            for x in range(left, right):
+                pixels[x, y] = tuple(round(c * ROW_LINE_DARKEN) for c in pixels[x, y])
+    return screen
+
+
+def scan_band(size, centre):
+    """A soft bright band at `centre`, the tube's refresh sweeping down the screen."""
+    width, height = size
+    column = Image.new("L", (1, height))
+    pixels = column.load()
+    for y in range(height):
+        offset = (y - centre) / SCAN_HALF_HEIGHT
+        pixels[0, y] = round(SCAN_PEAK * math.exp(-offset * offset))
+    return column.resize(size, Image.Resampling.BILINEAR)
+
+
+def sweep_frame(frame, mask, index):
+    """Lay the refresh band over the screen area for the frames that carry it."""
+    if not SCAN_FIRST_FRAME <= index <= SCAN_LAST_FRAME:
+        return frame
+    span = (index - SCAN_FIRST_FRAME) / (SCAN_LAST_FRAME - SCAN_FIRST_FRAME)
+    travel = span ** SCAN_EASE * (SCAN_Y_END - SCAN_Y_START)
+    band = scan_band(frame.size, SCAN_Y_START + travel)
+    return Image.composite(
+        ImageChops.add(frame, Image.merge("RGB", [band] * 3)), frame, mask
+    )
+
+
 def add_noise(frame, strength, rng, envelope):
     noise = Image.frombytes("L", frame.size, rng.randbytes(frame.width * frame.height))
     channels = []
@@ -179,7 +227,8 @@ def main(screen_path, out_gif):
         screen = raw.convert("RGB")
     mask = screen_mask(screen.size)
     tube = apply_portrait_tone_curve(
-        apply_vignette(apply_barrel(apply_bloom(apply_scanlines(apply_phosphor_tint(screen)))))
+        apply_vignette(apply_barrel(apply_character_rows(
+            apply_bloom(apply_scanlines(apply_phosphor_tint(screen))))))
     )
     base = compose_bezel(tube, mask)
     strength = motion_strength(base, mask)
@@ -196,12 +245,13 @@ def main(screen_path, out_gif):
             frame = add_noise(Image.composite(shifted, base, mask), strength, noise_rng, envelope)
         else:
             frame = base
+        frame = sweep_frame(frame, mask, index)
         frame.save(frames_dir / f"crt_{index:03d}.png")
 
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-framerate", str(FPS),
          "-i", str(frames_dir / "crt_%03d.png"), "-filter_complex",
-         "[0:v]split[a][b];[a]palettegen=max_colors=60:stats_mode=full[p];"
+         "[0:v]split[a][b];[a]palettegen=max_colors=48:stats_mode=full[p];"
          "[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle", "-loop", "0", out_gif],
         check=True,
     )

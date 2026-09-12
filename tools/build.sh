@@ -23,7 +23,7 @@ if ! "$VENV/bin/python" -c "import PIL, gifos" >/dev/null 2>&1; then
   "$VENV/bin/pip" install -q -r "$TOOLS/requirements.txt"
 fi
 
-if curl -sSfL -o "$WORK/avatar-download.png" "https://github.com/$USERNAME.png?size=800"; then
+if curl -sSfL --connect-timeout 10 -o "$WORK/avatar-download.png" "https://github.com/$USERNAME.png?size=800"; then
   mv "$WORK/avatar-download.png" "$WORK/avatar-source.png"
 elif [ ! -s "$WORK/avatar-source.png" ]; then
   echo "could not download the avatar and no cached source exists" >&2

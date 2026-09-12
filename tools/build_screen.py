@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw  # noqa: E402
 from gifos import Terminal  # noqa: E402
 
 WIDTH, HEIGHT, XPAD, YPAD = 800, 541, 22, 14
-PORTRAIT_PX = 435               # width; the source is cell-stretched vertically like the reference
+PORTRAIT_PX = 424               # matches build_avatar output exactly, so the cells are never resampled
 PANEL_COL = 60                  # column where the neofetch panel starts
 CREAM = "\x1b[97m"
 CELL_W, CELL_H = 8, 18          # gohufont-uni-14 advance plus gifos' line spacing
