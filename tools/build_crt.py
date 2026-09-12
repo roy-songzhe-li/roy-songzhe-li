@@ -59,6 +59,14 @@ def prepare(screen_path):
     portrait_halo = blur(portrait_emission, 7) * (.12, .22, .07)
     portrait_halo[18:498, 22:454] = 0
     tube += portrait_halo
+    # Fine shade texture is independent of the coarse grid that defines the face.
+    portrait = tube[18:498, 22:454]
+    luminance = source[18:498, 22:454] @ np.array([.299, .587, .114])
+    midtones = np.clip((luminance - 55) / 55, 0, 1) * np.clip((225 - luminance) / 40, 0, 1)
+    dot_y, dot_x = np.indices(luminance.shape)
+    stipple = np.cos(math.tau * dot_x / 3) * np.cos(math.tau * dot_y / 3)
+    amplitude = np.minimum(56 * midtones, 255 - portrait.max(axis=2))
+    portrait += (stipple * amplitude)[:, :, None]
     # Character-row baselines belong to the portrait and curve with its glass.
     for row in range(24):
         top = 18 + row * 20 + 17
