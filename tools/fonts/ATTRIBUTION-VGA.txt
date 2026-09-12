@@ -1,0 +1,11 @@
+PxPlus IBM VGA8 is distributed unmodified under Creative Commons
+Attribution-ShareAlike 4.0 International. See LICENSE-VGA.txt.
+
+Font source:
+https://github.com/Swordfish90/cool-retro-term/blob/1.2.0/app/qml/fonts/1985-ibm-pc-vga/PxPlus_IBM_VGA8.ttf
+
+Original font collection:
+The Ultimate Oldschool PC Font Pack
+https://int10h.org/oldschool-pc-fonts/
+
+The font is used to rasterize terminal block and shade characters.

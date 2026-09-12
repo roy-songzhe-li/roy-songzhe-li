@@ -1,144 +1,90 @@
-"""Redraw a GitHub avatar the way a terminal would: as character-cell block art.
-
-The reference screenshot is not a dithered bitmap. Zoomed in, the portrait is a
-coarse grid of wide, short terminal character cells, each filled with a single
-uniform shade texture - the ASCII shade characters. The mosaic quality comes
-from that blockiness, so this renders cells rather than dithering pixels.
-
-Measured from the reference: 20.4px vertical pitch (20/20/21/20/21/20...), 8px
-horizontal pitch, about 53x24 cells over the portrait's ~427x477px area.
-"""
+"""Convert the original avatar into a 48-by-24 green terminal character grid."""
+from pathlib import Path
+import re
+import subprocess
 import sys
-from PIL import Image, ImageDraw, ImageOps
+from tempfile import TemporaryDirectory
 
-# An art pixel spans TWO character cells horizontally - the standard trick, since a
-# character cell is tall and narrow and doubling it up gets close to square. Measured
-# on the reference: 20px row pitch, and a median horizontal run of 68px against the
-# 32px we got from 8px cells with half-block splits.
-COLS, ROWS = 26, 23
-CELL_W, CELL_H = 16, 20
-# The reference pairs a FINE dot screen with LARGE flat blocks - the texture is
-# high frequency, the structure is not. Coarse dots read as the wrong thing.
-DOT_W, DOT_H = 2, 2
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
-# Three phosphor anchors sampled from the reference: outline, backdrop, subject.
-DARK, MID, LIGHT = (65, 122, 53), (133, 203, 101), (244, 253, 226)
-
-# Crop in on the head before quantising. At 26x23 blocks there are not enough cells
-# to spare on empty backdrop, and the reference's subject fills its frame too.
-CROP = (0.12, 0.01, 0.92, 0.90)  # fractions of the source avatar
-# The CP437 shade characters, as lattices rather than as an ordered dither. A Bayer
-# screen resolves into X and cross motifs at these densities, which is not what the
-# reference's even dot grid looks like.
-SHADES = (
-    lambda x, y: False,                          # empty
-    lambda x, y: x % 2 == 0 and y % 2 == 0,      # light shade, a 25% grid
-    lambda x, y: (x + y) % 2 == 0,               # medium shade, a checkerboard
-    lambda x, y: not (x % 2 and y % 2),          # dark shade, 75%
-    lambda x, y: True,                           # solid
-)
-BG_TOLERANCE = 32               # flood-fill tolerance for the avatar's flat backdrop
-TONE_OUTLINE, TONE_MIDTONE, TONE_SUBJECT, TONE_BACKDROP = 10, 96, 250, 150
-SHADOW_CUTOFF, MIDTONE_CUTOFF = 70, 150
+COLUMNS, ROWS = 48, 24
+PORTRAIT_SIZE = (432, 480)
+SYMBOLS = ' ▀▄█▌▐░▒▓'
+FONT = Path(__file__).parent / 'fonts' / 'VGA.ttf'
+PALETTE = np.array([(33, 72, 29), (74, 128, 53), (126, 184, 91),
+                    (176, 212, 138), (226, 233, 210)])
 
 
-def backdrop_mask(image):
-    """Mask of the avatar's flat backdrop, flood-filled inward from the four corners.
-
-    A plain colour-distance test would also swallow the skin tones, which sit close
-    to this avatar's tan background, so the fill is seeded from the corners instead.
-    """
-    sentinel = (1, 2, 3)
-    probe = image.copy()
-    width, height = probe.size
-    for corner in ((0, 0), (width - 1, 0), (0, height - 1), (width - 1, height - 1)):
-        ImageDraw.floodfill(probe, corner, sentinel, thresh=BG_TOLERANCE)
-    return Image.eval(
-        Image.merge("RGB", [
-            channel.point(lambda v, base=sentinel[i]: 255 if v == base else 0)
-            for i, channel in enumerate(probe.split())
-        ]).convert("L"),
-        lambda v: 255 if v > 250 else 0,
-    )
+def prepare_tones(source):
+    with Image.open(source) as image:
+        image = image.convert('RGB')
+        pixels = np.asarray(image, dtype=float)
+        backdrop = np.max(np.abs(pixels - pixels[0, 0]), axis=2) < 35
+        tones = np.clip((np.asarray(image.convert('L'), dtype=float) - 15) * 255 / 185, 0, 255)
+    tones[backdrop] = 155
+    return Image.fromarray(tones.astype(np.uint8))
 
 
-def remap_tones(grey):
-    """Flatten the avatar's tones onto deliberate phosphor levels."""
-    return grey.point([
-        TONE_OUTLINE if v < SHADOW_CUTOFF else TONE_MIDTONE if v < MIDTONE_CUTOFF else TONE_SUBJECT
-        for v in range(256)
-    ])
-
-
-def shade_for(tone):
-    """Pick the (background, foreground, shade) a cell of this tone is drawn with.
-
-    Two segments - dark-to-backdrop, then backdrop-to-subject - each stepped through
-    the four shade characters, which is what a terminal actually has to draw with.
-    """
-    level = round(tone / 255 * 8)
-    if level <= 4:
-        return DARK, MID, level
-    else:
-        return MID, LIGHT, level - 4
-
-
-def draw_block(draw, left, top, height, tone):
-    """Fill one block with a single uniform shade texture.
-
-    Every dot row carries the same number of dots and only its phase rotates, the
-    way the ASCII shade characters are drawn. That matters: a 2D dither leaves
-    some rows empty, which makes the block ripple vertically and drowns out the
-    inter-row baseline. In the reference a backdrop block averages dead flat
-    horizontally, with the row line as the only vertical structure.
-    """
-    background, foreground, shade = shade_for(tone)
-    draw.rectangle((left, top, left + CELL_W - 1, top + height - 1), background)
-    if shade == 4:
-        draw.rectangle((left, top, left + CELL_W - 1, top + height - 1), foreground)
-        return
-    pattern = SHADES[shade]
-    for row in range(top // DOT_H, (top + height) // DOT_H):
-        for column in range(CELL_W // DOT_W):
-            if pattern(column, row):
-                x, y = left + column * DOT_W, row * DOT_H
-                draw.rectangle((x, y, x + DOT_W - 1, y + DOT_H - 1), foreground)
-
-
-
+def render_characters(output):
+    font = ImageFont.truetype(str(FONT), 16)
+    art = Image.new('L', (COLUMNS * 8, ROWS * 16))
+    draw = ImageDraw.Draw(art)
+    draw.fontmode = '1'
+    row = col = 0
+    foreground, background = 255, 0
+    for token in re.findall(r'\x1b\[[0-?]*[ -/]*[@-~]|[^\x1b]', output):
+        if token.startswith('\x1b'):
+            if token.endswith('m'):
+                codes = [int(value or 0) for value in token[2:-1].split(';')]
+                index = 0
+                while index < len(codes):
+                    code = codes[index]
+                    if code in (38, 48) and index + 4 < len(codes) and codes[index + 1] == 2:
+                        value = round(sum(codes[index + 2:index + 5]) / 3)
+                        if code == 38:
+                            foreground = value
+                        else:
+                            background = value
+                        index += 5
+                    else:
+                        if code == 0:
+                            foreground, background = 255, 0
+                        elif code == 39:
+                            foreground = 255
+                        elif code == 49:
+                            background = 0
+                        index += 1
+        elif token == '\n':
+            row += 1
+            col = 0
+        elif token == '\r':
+            col = 0
+        else:
+            if token not in SYMBOLS or row >= ROWS or col >= COLUMNS:
+                raise ValueError(f'Unexpected terminal output at row {row}, column {col}: {token!r}')
+            draw.rectangle((col * 8, row * 16, col * 8 + 7, row * 16 + 15), fill=background)
+            draw.text((col * 8, row * 16), token, font=font, fill=foreground)
+            col += 1
+    values = np.asarray(art.resize(PORTRAIT_SIZE, Image.Resampling.LANCZOS), dtype=float)
+    ramp = np.arange(len(PALETTE)) * 255 / (len(PALETTE) - 1)
+    colors = np.stack([np.interp(values, ramp, PALETTE[:, channel]) for channel in range(3)], axis=2)
+    return Image.fromarray(colors.astype(np.uint8))
 
 
 def main(source, target):
-    avatar = Image.open(source).convert("RGB")
-    mask = backdrop_mask(avatar)
-    tones = remap_tones(ImageOps.grayscale(avatar))
-    tones.paste(Image.new("L", avatar.size, TONE_BACKDROP), (0, 0), mask)
-    width, height = avatar.size
-    tones = tones.crop((round(CROP[0] * width), round(CROP[1] * height),
-                        round(CROP[2] * width), round(CROP[3] * height)))
-    # Two samples per row: the art pixel keeps the reference's 16px width, which is
-    # the dimension the blockiness actually reads in, but splits vertically. At the
-    # full 16x20 the face collapses into an unreadable blob - this avatar is a line
-    # drawing, not the flat silhouette the reference was made from.
-    cells = tones.resize((COLS, ROWS * 2), Image.Resampling.BOX)
-    # Averaging a line drawing down to 26x23 pulls everything toward the middle, so
-    # stretch the cell tones back out to the full range or the portrait reads as mush.
-    cells = ImageOps.autocontrast(cells, cutoff=2)
-
-    art = Image.new("RGB", (COLS * CELL_W, ROWS * CELL_H))
-    draw = ImageDraw.Draw(art)
-    for row in range(ROWS):
-        for col in range(COLS):
-            half = CELL_H // 2
-            draw_block(draw, col * CELL_W, row * CELL_H, half, cells.getpixel((col, row * 2)))
-            draw_block(draw, col * CELL_W, row * CELL_H + half, CELL_H - half,
-                       cells.getpixel((col, row * 2 + 1)))
-
-    # The inter-row baseline is drawn in build_crt after the bloom, so the
-    # glow cannot smear it into a soft undulation.
-    art.save(target)
-    print(f"wrote {target} {art.size}")
+    with TemporaryDirectory(prefix='crt-avatar-') as directory:
+        tones = Path(directory) / 'tones.png'
+        prepare_tones(source).save(tones)
+        output = subprocess.check_output([
+            'chafa', '--format', 'symbols', '--colors', 'full', '--optimize', '0',
+            '--symbols', f'[{SYMBOLS}]', '--fill', 'stipple', '--size', f'{COLUMNS}x{ROWS}',
+            '--stretch', '--fg', '#ffffff', '--bg', '#000000', '--preprocess', 'off',
+            '--work', '9', '--probe', 'off', str(tones),
+        ], text=True)
+    render_characters(output).save(target)
+    print(f'Wrote {target}: {COLUMNS} x {ROWS} terminal cells')
 
 
-if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2])
+if __name__ == '__main__':
+    main(*sys.argv[1:])

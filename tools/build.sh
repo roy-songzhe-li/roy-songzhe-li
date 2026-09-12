@@ -1,36 +1,29 @@
 #!/usr/bin/env bash
-# Rebuild assets/crt-profile.gif from scratch. Needs python3 and ffmpeg on PATH.
+# Rebuild the approved portrait and CRT GIF. Requires chafa, ffmpeg, and Python 3.10-3.12.
 set -euo pipefail
 
-USERNAME="roy-songzhe-li"
 TOOLS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$TOOLS")"
 WORK="$TOOLS/build"
 VENV="$TOOLS/.venv"
 
-# gifos pins Pillow ^10, which has no wheels for the newest CPython, so prefer a known-good one.
+for dependency in chafa ffmpeg; do
+  command -v "$dependency" >/dev/null 2>&1 || { echo "Missing dependency: $dependency" >&2; exit 1; }
+done
+
 pick_python() {
   for candidate in python3.12 python3.11 python3.10 python3; do
     command -v "$candidate" >/dev/null 2>&1 && { echo "$candidate"; return; }
   done
-  echo "no python3 found" >&2
+  echo "No Python 3 interpreter found" >&2
   exit 1
 }
 
 mkdir -p "$WORK"
 [ -d "$VENV" ] || "$(pick_python)" -m venv "$VENV"
-if ! "$VENV/bin/python" -c "import PIL, gifos" >/dev/null 2>&1; then
-  "$VENV/bin/pip" install -q -r "$TOOLS/requirements.txt"
-fi
-
-if curl -sSfL --connect-timeout 10 -o "$WORK/avatar-download.png" "https://github.com/$USERNAME.png?size=800"; then
-  mv "$WORK/avatar-download.png" "$WORK/avatar-source.png"
-elif [ ! -s "$WORK/avatar-source.png" ]; then
-  echo "could not download the avatar and no cached source exists" >&2
-  exit 1
-fi
-"$VENV/bin/python" "$TOOLS/build_avatar.py" "$WORK/avatar-source.png" "$REPO/assets/avatar-pixel.png"
+"$VENV/bin/pip" install -q -r "$TOOLS/requirements.txt"
+"$VENV/bin/python" "$TOOLS/build_avatar.py" "$REPO/assets/avatar-source.png" "$REPO/assets/avatar-pixel.png"
 "$VENV/bin/python" "$TOOLS/build_screen.py" "$REPO/assets/avatar-pixel.png" "$WORK/swatch.png" "$WORK/screen.png"
 "$VENV/bin/python" "$TOOLS/build_crt.py" "$WORK/screen.png" "$REPO/assets/crt-profile.gif"
 
-echo "done -> $REPO/assets/crt-profile.gif"
+echo "Done -> $REPO/assets/crt-profile.gif"
