@@ -17,7 +17,8 @@ from gifos import Terminal  # noqa: E402
 
 WIDTH, HEIGHT, XPAD, YPAD = 800, 541, 22, 14
 PORTRAIT_PX = 424               # matches build_avatar output exactly, so the cells are never resampled
-PANEL_COL = 60                  # column where the neofetch panel starts
+PANEL_COL = 58                  # column where the neofetch panel starts
+                                # (2 columns left of the reference, to fit "Forward Deployed Engineering")
 CREAM = "\x1b[97m"
 CELL_W, CELL_H = 8, 18          # gohufont-uni-14 advance plus gifos' line spacing
 PROMPT = "roy@mbp$ "
@@ -30,7 +31,7 @@ FIELDS = [
     ("OS", "macOS"),
 ]
 LANGUAGES = ["TypeScript, Python,", "JavaScript, Shell"]
-SKILLS = ["AI Agents, Full Stack,", "Forward Deployed Eng"]
+SKILLS = ["AI Agents, Full Stack,", "Forward Deployed Engineering"]
 
 # Neofetch's ANSI normal/bright order, calibrated for the reference phosphor response.
 SWATCH_COLORS = [
