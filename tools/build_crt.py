@@ -1,4 +1,4 @@
-"""Render a softly glowing CRT with deterministic grain and a seamless refresh cycle."""
+"""Render a softly glowing CRT with character rows, fine grain, and a broad refresh sweep."""
 from pathlib import Path
 import math
 import subprocess
@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from build_screen import BACKGROUND, WIDTH, HEIGHT
 
-FRAMES, FPS = 48, 8
+FRAMES, FPS = 44, 7
 SEED = 0x435254
 
 
@@ -59,6 +59,10 @@ def prepare(screen_path):
     portrait_halo = blur(portrait_emission, 7) * (.12, .22, .07)
     portrait_halo[18:498, 22:454] = 0
     tube += portrait_halo
+    # Character-row baselines belong to the portrait and curve with its glass.
+    for row in range(24):
+        top = 18 + row * 20 + 17
+        tube[top:top + 3, 22:454] *= np.array([.90, .72, .82])[:, None, None]
     yy, xx = np.indices((HEIGHT, WIDTH))
     tube *= (1 - .045 * (1 + np.cos(yy * math.tau / 3.1)) / 2)[:, :, None]
     # A faint horizontal phosphor structure remains visible in the dark glass.
@@ -89,15 +93,35 @@ def main(screen_path, out_gif, still_only=False):
     rgb(base).save(still_path)
     if still_only:
         return
+    noise_strength = np.full((HEIGHT, WIDTH), 1.0, dtype=np.float32)
+    noise_strength[18:498, 22:454] = 1.55
+    noise_strength[18:216, 484:776] = 1.45
+    noise_strength[228:279, 485:719] = 3.6
+    coarse_size = ((HEIGHT + 1) // 2, (WIDTH + 1) // 2)
+    drift = 0.0
     for index in range(FRAMES):
         phase = index / FRAMES
-        distance = ((yy - (-70 + phase * (HEIGHT + 140)) + (HEIGHT + 140) / 2)
-                    % (HEIGHT + 140) - (HEIGHT + 140) / 2)
-        band = 4 * np.exp(-(distance / 26) ** 2)
-        flicker = .003 * math.sin(math.tau * phase) + .0015 * math.sin(math.tau * phase * 3)
-        shimmer = .8 * np.sin(xx * .7 + yy * 1.3 + math.tau * phase)
+        # A broad refresh band traverses the glass, rather than a narrow bright line.
+        center = np.interp(index, [0, 7, 12, 20, 28, 36, 43],
+                           [-180, -25, 82, 200, 335, 464, 552])
+        band = 7.2 * np.exp(-((yy - center) / 60) ** 2)
+        drift = .72 * drift + rng.normal(0, .0015)
+        flicker = .004 * math.sin(math.tau * phase) + drift
         frame = base * (1 + flicker * mask[:, :, None])
-        frame += ((band + shimmer) * mask)[:, :, None]
+        if index:
+            grain = rng.normal(0, 1, coarse_size).repeat(2, 0).repeat(2, 1)[:HEIGHT, :WIDTH]
+            chroma = rng.normal(0, .35, (*coarse_size, 3)).repeat(2, 0).repeat(2, 1)[:HEIGHT, :WIDTH]
+            frame += (grain[:, :, None] + chroma) * (noise_strength * mask)[:, :, None]
+        # Keep the cabinet steady; only the phosphor image has a tiny horizontal nudge.
+        displacement = (.025 * math.sin(math.tau * phase * 7)
+                        + .018 * np.sin(np.arange(HEIGHT) * .19 + math.tau * phase * 3))
+        if index == 27:
+            displacement += .48
+        neighbor = np.where((displacement >= 0)[:, None, None],
+                            np.roll(frame, 1, axis=1), np.roll(frame, -1, axis=1))
+        weight = (np.abs(displacement)[:, None] * mask)[:, :, None]
+        frame = frame * (1 - weight) + neighbor * weight
+        frame += (band * mask)[:, :, None]
         rgb(frame).save(workdir / f'frame-{index:03d}.png')
     subprocess.run([
         'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-framerate', str(FPS),
