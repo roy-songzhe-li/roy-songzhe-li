@@ -1,6 +1,7 @@
 """Compose the terminal screen (pixel portrait + neofetch panel) as a still PNG."""
 import os
 import pathlib
+import re
 import sys
 
 HERE = pathlib.Path(__file__).parent.resolve()
@@ -23,12 +24,11 @@ PANEL_COL = 53                  # column where the neofetch panel starts, at the
 LABEL, VALUE = "\x1b[0m", "\x1b[92m"
 CREAM = "\x1b[97m"
 
-# Terminus is what cool-retro-term's default profile uses, and its thin, angular
-# letterforms are the ones in the reference - Monaco's rounder shapes were visibly
-# wrong. At 18 it measures the reference's 9px advance and 19px height, so 1px of
-# line spacing lands the 20px pitch.
-FONT_FILE = str(HERE / "fonts" / "TerminessNerdFontMono-Regular.ttf")
-FONT_SIZE, LINE_SPACING = 18, 1
+# Pixel Operator Mono (CC0). At 18 its advance and its bounding box are both exactly
+# 9px, which is the reference's advance and also means the glyphs sit on the column
+# grid with no correction. 15px tall, so 5px of line spacing lands the 20px pitch.
+FONT_FILE = str(HERE / "fonts" / "PixelOperatorMono.ttf")
+FONT_SIZE, LINE_SPACING = 18, 5
 CELL_W, CELL_H = 9, 20
 PROMPT = "roy@mbp$ "
 GREEN = "\x1b[0m"
@@ -70,14 +70,34 @@ def build_swatch_bar(target):
 def build_terminal():
     """Build the terminal, correcting gifos' idea of a column's width.
 
-    gifos measures a column as the bounding box of "W", but Terminess' W overhangs
-    its advance - 10px against 9px - so every field would drift a pixel per column.
-    The advance is what the text actually renders at.
+    Pixel Operator Mono measures 9px either way at this size, so this only pins the
+    value rather than correcting it - but it keeps the layout honest if the font moves.
     """
     terminal = Terminal(WIDTH, HEIGHT, XPAD, YPAD, FONT_FILE, FONT_SIZE, LINE_SPACING)
     terminal._Terminal__font_width = CELL_W
     terminal.num_cols = (WIDTH - 2 * XPAD) // CELL_W
     return terminal
+
+
+ANSI = re.compile(r"(\x1b\[\d+(?:;\d+)*m)")
+
+
+def write_spaced(terminal, text, row, col):
+    """Write one character per column so the advance is the column pitch.
+
+    gifos hands a whole run to PIL in one call, which spaces it at the font's own
+    advance. Stepping character by character is what lets a 16px face sit on the
+    reference's 9px grid.
+    """
+    for chunk in (c for c in ANSI.split(text) if c):
+        if ANSI.fullmatch(chunk):
+            terminal.gen_text(chunk, row, col, contin=True)
+        else:
+            for character in chunk:
+                if character != " ":
+                    terminal.gen_text(character, row, col, contin=True)
+                col += 1
+    return col
 
 
 def write_field(terminal, label, lines, row):
@@ -91,9 +111,9 @@ def write_field(terminal, label, lines, row):
     if len(lines) > 1:
         room = terminal.num_cols - PANEL_COL + 1 - max(len(line) for line in lines[1:])
         indent = max(0, min(indent, room))
-    terminal.gen_text(f"{LABEL}{label}:{VALUE} {lines[0]}", row, PANEL_COL, contin=True)
+    write_spaced(terminal, f"{LABEL}{label}:{VALUE} {lines[0]}", row, PANEL_COL)
     for offset, line in enumerate(lines[1:], start=1):
-        terminal.gen_text(f"{VALUE}{line}", row + offset, PANEL_COL + indent, contin=True)
+        write_spaced(terminal, f"{VALUE}{line}", row + offset, PANEL_COL + indent)
     return row + len(lines)
 
 
@@ -108,7 +128,7 @@ def main(avatar_path, swatch_path, out_path):
 
     row = 1
     for label, value in FIELDS:
-        terminal.gen_text(f"{LABEL}{label}:{VALUE} {value}", row, PANEL_COL, contin=True)
+        write_spaced(terminal, f"{LABEL}{label}:{VALUE} {value}", row, PANEL_COL)
         row += 1
 
     row = write_field(terminal, "Languages", LANGUAGES, row)
@@ -116,7 +136,7 @@ def main(avatar_path, swatch_path, out_path):
 
     terminal.paste_image(build_swatch_bar(swatch_path), row, PANEL_COL)
 
-    terminal.gen_text(f"{CREAM}{PROMPT}", terminal.num_rows, 1, contin=True)
+    write_spaced(terminal, f"{CREAM}{PROMPT}", terminal.num_rows, 1)
     terminal.save_frame(out_path)
     draw_block_cursor(out_path, terminal.num_rows)
 

@@ -11,8 +11,10 @@ FRAMES = 44
 FPS = 7
 SCANLINE_PERIOD = 3
 SCANLINE_DARKEN = 0.86
-TINT_STRENGTH = 0.30
-TINT_SHADOW, TINT_MID, TINT_HIGHLIGHT = "#071007", "#69ad50", "#edf3df"
+TINT_STRENGTH = 0.22
+# The highlight anchor was near-white, which put a floor of ~99 under the blue
+# channel and flattened the two panel greens into one.
+TINT_SHADOW, TINT_MID, TINT_HIGHLIGHT = "#071007", "#69ad50", "#d2f2a0"
 BARREL_X, BARREL_Y, BARREL_RADIAL = 0.022, 0.028, 0.006
 MESH_STEP = 32
 SCREEN_BOX = (9, 9, 791, 532)
@@ -22,7 +24,7 @@ NOISE_SEED = 0x435254
 NOISE_BLOCK = 2
 # Saturation already matches; the render just sat about 11 levels darker than the
 # reference across every channel, which reads as "less vivid".
-TUBE_GAIN = 1.12
+TUBE_GAIN = 1.18
 PORTRAIT_BOX = (18, 14, 462, 506)
 # The dark baseline the terminal leaves between character rows. Measured on the
 # reference face strip: a crisp 3px line every 20px, about 24% down. It is laid
@@ -63,8 +65,11 @@ def apply_scanlines(screen):
 def apply_bloom(screen):
     gate = ImageOps.grayscale(screen).point(lambda value: max(0, min(255, (value - 38) * 3)))
     emission = ImageChops.multiply(screen, Image.merge("RGB", [gate] * 3))
-    glow = emission.filter(ImageFilter.GaussianBlur(6.5))
-    return Image.blend(screen, ImageChops.screen(screen, glow), 0.62)
+    # A soft halo, not a blow-out. Screening hard enough to saturate the glyph cores
+    # turns them near-white, which loses both the halo gradient and the difference
+    # between the label and value greens.
+    glow = emission.filter(ImageFilter.GaussianBlur(4.0))
+    return Image.blend(screen, ImageChops.screen(screen, glow), 0.38)
 
 
 def source_point(x, y, size):
@@ -262,8 +267,8 @@ def main(screen_path, out_gif):
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-framerate", str(FPS),
          "-i", str(frames_dir / "crt_%03d.png"), "-filter_complex",
-         "[0:v]split[a][b];[a]palettegen=max_colors=72:stats_mode=full[p];"
-         "[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle", "-loop", "0", out_gif],
+         "[0:v]split[a][b];[a]palettegen=max_colors=255:stats_mode=full[p];"
+         "[b][p]paletteuse=dither=none:diff_mode=rectangle", "-loop", "0", out_gif],
         check=True,
     )
     print(f"wrote {out_gif} ({pathlib.Path(out_gif).stat().st_size / 1e6:.2f} MB)")

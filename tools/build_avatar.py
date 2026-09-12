@@ -27,7 +27,16 @@ DARK, MID, LIGHT = (65, 122, 53), (133, 203, 101), (244, 253, 226)
 # Crop in on the head before quantising. At 26x23 blocks there are not enough cells
 # to spare on empty backdrop, and the reference's subject fills its frame too.
 CROP = (0.12, 0.01, 0.92, 0.90)  # fractions of the source avatar
-BAYER = ((0, 8, 2, 10), (12, 4, 14, 6), (3, 11, 1, 9), (15, 7, 13, 5))
+# The CP437 shade characters, as lattices rather than as an ordered dither. A Bayer
+# screen resolves into X and cross motifs at these densities, which is not what the
+# reference's even dot grid looks like.
+SHADES = (
+    lambda x, y: False,                          # empty
+    lambda x, y: x % 2 == 0 and y % 2 == 0,      # light shade, a 25% grid
+    lambda x, y: (x + y) % 2 == 0,               # medium shade, a checkerboard
+    lambda x, y: not (x % 2 and y % 2),          # dark shade, 75%
+    lambda x, y: True,                           # solid
+)
 BG_TOLERANCE = 32               # flood-fill tolerance for the avatar's flat backdrop
 TONE_OUTLINE, TONE_MIDTONE, TONE_SUBJECT, TONE_BACKDROP = 10, 96, 250, 150
 SHADOW_CUTOFF, MIDTONE_CUTOFF = 70, 150
@@ -62,18 +71,16 @@ def remap_tones(grey):
 
 
 def shade_for(tone):
-    """Pick the (background, foreground, density) a cell of this tone is drawn with.
+    """Pick the (background, foreground, shade) a cell of this tone is drawn with.
 
-    Two segments - dark-to-backdrop, then backdrop-to-subject - each stepped in
-    quarters, which is what the four ASCII shade characters give you.
+    Two segments - dark-to-backdrop, then backdrop-to-subject - each stepped through
+    the four shade characters, which is what a terminal actually has to draw with.
     """
-    # Six levels, not nine: the reference's subject is mostly solid cream and its
-    # backdrop one uniform dot screen, with only a few dithered blocks between.
-    level = round(tone / 255 * 6)
-    if level <= 3:
-        return DARK, MID, level / 3
+    level = round(tone / 255 * 8)
+    if level <= 4:
+        return DARK, MID, level
     else:
-        return MID, LIGHT, (level - 3) / 3
+        return MID, LIGHT, level - 4
 
 
 def draw_block(draw, left, top, height, tone):
@@ -85,16 +92,15 @@ def draw_block(draw, left, top, height, tone):
     inter-row baseline. In the reference a backdrop block averages dead flat
     horizontally, with the row line as the only vertical structure.
     """
-    background, foreground, density = shade_for(tone)
+    background, foreground, shade = shade_for(tone)
     draw.rectangle((left, top, left + CELL_W - 1, top + height - 1), background)
-    if density <= 0:
+    if shade == 4:
+        draw.rectangle((left, top, left + CELL_W - 1, top + height - 1), foreground)
         return
+    pattern = SHADES[shade]
     for row in range(top // DOT_H, (top + height) // DOT_H):
         for column in range(CELL_W // DOT_W):
-            # A plain ordered screen. Anything that steps the phase linearly per row -
-            # which is what a fixed dot count per row forces - lays the dots out along
-            # diagonals instead.
-            if (BAYER[row % 4][column % 4] + 0.5) / 16 < density:
+            if pattern(column, row):
                 x, y = left + column * DOT_W, row * DOT_H
                 draw.rectangle((x, y, x + DOT_W - 1, y + DOT_H - 1), foreground)
 
