@@ -30,7 +30,7 @@ FIELDS = [
     ("OS", "macOS"),
 ]
 LANGUAGES = ["TypeScript, Python,", "JavaScript, Shell"]
-SKILLS = ["AI Agents, MCP,", "Forward Deployed,", "Full Stack"]
+SKILLS = ["AI Agents, MCP,", "Forward Deployed Eng,", "Full Stack"]
 
 # Neofetch's ANSI normal/bright order, calibrated for the reference phosphor response.
 SWATCH_COLORS = [
