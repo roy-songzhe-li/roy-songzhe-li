@@ -25,13 +25,12 @@ GREEN = "\x1b[0m"
 
 FIELDS = [
     ("Name", "Roy Li"),
-    ("Age", "27"),
     ("Site", "roy-li.dev"),
     ("Work", "Aetheron"),
     ("OS", "macOS"),
 ]
-LANGUAGES = ["TypeScript, Python,", "Java, Lua, Bash"]
-SKILLS = ["AI Agents,", "Forward Deployed"]
+LANGUAGES = ["TypeScript, Python,", "JavaScript, Shell"]
+SKILLS = ["AI Agents, MCP,", "Forward Deployed,", "Full Stack"]
 
 # Neofetch's ANSI normal/bright order, calibrated for the reference phosphor response.
 SWATCH_COLORS = [
@@ -58,6 +57,14 @@ def build_swatch_bar(target):
     return target
 
 
+def write_field(terminal, label, lines, row):
+    """Write a multi-line field, hanging the continuations under the value."""
+    terminal.gen_text(f"{CREAM}{label}:{GREEN} {lines[0]}", row, PANEL_COL, contin=True)
+    for offset, line in enumerate(lines[1:], start=1):
+        terminal.gen_text(line, row + offset, PANEL_COL + len(label) + 2, contin=True)
+    return row + len(lines)
+
+
 def main(avatar_path, swatch_path, out_path):
     # contin=True everywhere: gifos otherwise auto-scrolls the frame to close the gap
     # under the pasted portrait, which wipes the portrait off the screen.
@@ -72,12 +79,8 @@ def main(avatar_path, swatch_path, out_path):
         terminal.gen_text(f"{CREAM}{label}:{GREEN} {value}", row, PANEL_COL, contin=True)
         row += 1
 
-    terminal.gen_text(f"{CREAM}Languages:{GREEN} {LANGUAGES[0]}", row, PANEL_COL, contin=True)
-    terminal.gen_text(LANGUAGES[1], row + 1, PANEL_COL + 11, contin=True)
-    row += 2
-    terminal.gen_text(f"{CREAM}Skills:{GREEN} {SKILLS[0]}", row, PANEL_COL, contin=True)
-    terminal.gen_text(SKILLS[1], row + 1, PANEL_COL + 8, contin=True)
-    row += 3
+    row = write_field(terminal, "Languages", LANGUAGES, row)
+    row = write_field(terminal, "Skills", SKILLS, row) + 1
 
     terminal.paste_image(build_swatch_bar(swatch_path), row, PANEL_COL)
 
