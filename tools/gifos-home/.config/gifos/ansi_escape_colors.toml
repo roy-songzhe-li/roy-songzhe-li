@@ -1,7 +1,7 @@
 # Green-phosphor palette sampled from a cool-retro-term screenshot.
 [phosphor]
     [phosphor.default_colors]
-    fg = "#92d06f"
+    fg = "#7ad44e"
     bg = "#102c0b"
 
     [phosphor.normal_colors]
@@ -17,7 +17,7 @@
     [phosphor.bright_colors]
     black = "#2a4423"
     red = "#8cc96a"
-    green = "#a8de84"
+    green = "#8ae968"
     yellow = "#cdeba3"
     blue = "#79b862"
     magenta = "#9ad277"

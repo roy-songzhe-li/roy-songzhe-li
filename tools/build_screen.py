@@ -17,10 +17,17 @@ from gifos import Terminal  # noqa: E402
 
 WIDTH, HEIGHT, XPAD, YPAD = 800, 541, 22, 14
 PORTRAIT_PX = 424               # matches build_avatar output exactly, so the cells are never resampled
-PANEL_COL = 58                  # column where the neofetch panel starts
-                                # (2 columns left of the reference, to fit "Forward Deployed Engineering")
+PANEL_COL = 53                  # column where the neofetch panel starts, at the reference's x=490
+# The reference draws labels and values in two greens, not white-on-green - the
+# cream labels this had before were invented and washed the whole panel out.
+LABEL, VALUE = "\x1b[0m", "\x1b[92m"
 CREAM = "\x1b[97m"
-CELL_W, CELL_H = 8, 18          # gohufont-uni-14 advance plus gifos' line spacing
+
+# The reference's panel measures a 9px character advance and a 19-20px line pitch;
+# gifos' bundled gohufont is a fixed 8x14 bitmap and cannot be scaled. Monaco at 15
+# gives exactly 9px and 18px tall, so 1px of line spacing lands the 19px pitch.
+FONT_FILE, FONT_SIZE, LINE_SPACING = "/System/Library/Fonts/Monaco.ttf", 15, 1
+CELL_W, CELL_H = 9, 19
 PROMPT = "roy@mbp$ "
 GREEN = "\x1b[0m"
 
@@ -59,17 +66,26 @@ def build_swatch_bar(target):
 
 
 def write_field(terminal, label, lines, row):
-    """Write a multi-line field, hanging the continuations under the value."""
-    terminal.gen_text(f"{CREAM}{label}:{GREEN} {lines[0]}", row, PANEL_COL, contin=True)
+    """Write a multi-line field, hanging the continuations under the value.
+
+    The hanging indent shrinks when a continuation would run past the right edge,
+    which the longest skill needs now that the panel is set at the reference's
+    wider character advance.
+    """
+    indent = len(label) + 2
+    if len(lines) > 1:
+        room = terminal.num_cols - PANEL_COL + 1 - max(len(line) for line in lines[1:])
+        indent = max(0, min(indent, room))
+    terminal.gen_text(f"{LABEL}{label}:{VALUE} {lines[0]}", row, PANEL_COL, contin=True)
     for offset, line in enumerate(lines[1:], start=1):
-        terminal.gen_text(line, row + offset, PANEL_COL + len(label) + 2, contin=True)
+        terminal.gen_text(f"{VALUE}{line}", row + offset, PANEL_COL + indent, contin=True)
     return row + len(lines)
 
 
 def main(avatar_path, swatch_path, out_path):
     # contin=True everywhere: gifos otherwise auto-scrolls the frame to close the gap
     # under the pasted portrait, which wipes the portrait off the screen.
-    terminal = Terminal(WIDTH, HEIGHT, XPAD, YPAD)
+    terminal = Terminal(WIDTH, HEIGHT, XPAD, YPAD, FONT_FILE, FONT_SIZE, LINE_SPACING)
     terminal.toggle_show_cursor(False)
 
     with Image.open(avatar_path) as art:
@@ -77,7 +93,7 @@ def main(avatar_path, swatch_path, out_path):
 
     row = 1
     for label, value in FIELDS:
-        terminal.gen_text(f"{CREAM}{label}:{GREEN} {value}", row, PANEL_COL, contin=True)
+        terminal.gen_text(f"{LABEL}{label}:{VALUE} {value}", row, PANEL_COL, contin=True)
         row += 1
 
     row = write_field(terminal, "Languages", LANGUAGES, row)
@@ -91,10 +107,7 @@ def main(avatar_path, swatch_path, out_path):
 
 
 def draw_block_cursor(frame_path, row):
-    """Draw the filled block cursor by hand.
-
-    gifos' bundled bitmap font is latin-1 only, so it cannot render U+2588 itself.
-    """
+    """Draw the filled block cursor by hand, since the font has no U+2588."""
     with Image.open(frame_path) as frame:
         canvas = frame.copy()
     left = XPAD + len(PROMPT) * CELL_W

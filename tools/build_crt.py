@@ -34,7 +34,7 @@ SCAN_FIRST_FRAME, SCAN_LAST_FRAME = 7, 38
 SCAN_Y_START, SCAN_Y_END = 20, 499
 SCAN_HALF_HEIGHT, SCAN_PEAK = 26, 6
 SCAN_EASE = 1.2                 # the reference sweep starts slow and accelerates
-SWATCH_MOTION_BOX = (486, 196, 724, 252)
+SWATCH_MOTION_BOX = (486, 188, 718, 238)
 PORTRAIT_TONE_POINTS = (
     (0, 0), (80, 71), (119, 117), (141, 136), (152, 145), (158, 152), (161, 161),
     (170, 166), (172, 172), (180, 178), (185, 183), (190, 188), (203, 193),
