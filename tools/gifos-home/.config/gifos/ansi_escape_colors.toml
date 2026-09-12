@@ -2,7 +2,7 @@
 [phosphor]
     [phosphor.default_colors]
     fg = "#92d06f"
-    bg = "#13250f"
+    bg = "#102c0b"
 
     [phosphor.normal_colors]
     black = "#0d1a0a"

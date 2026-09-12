@@ -13,10 +13,13 @@ from PIL import Image, ImageDraw, ImageOps
 
 COLS, ROWS = 53, 24
 CELL_W, CELL_H = 8, 20          # the terminal's font advance and line pitch
-DOT = 2                         # shade-pattern dot size inside a cell
+# Shade dots are wide-short rather than square: 4 columns keeps the full range of
+# densities, while the taller dot gives the chunky block look and compresses far
+# better than a fine screen.
+DOT_W, DOT_H = 2, 4
 
 # Three phosphor anchors sampled from the reference: outline, backdrop, subject.
-DARK, MID, LIGHT = (62, 116, 50), (126, 192, 96), (232, 243, 214)
+DARK, MID, LIGHT = (65, 122, 53), (133, 203, 101), (244, 253, 226)
 
 BG_TOLERANCE = 32               # flood-fill tolerance for the avatar's flat backdrop
 TONE_OUTLINE, TONE_MIDTONE, TONE_SUBJECT, TONE_BACKDROP = 10, 96, 250, 150
@@ -75,14 +78,14 @@ def draw_block(draw, left, top, height, tone):
     """
     background, foreground, density = shade_for(tone)
     draw.rectangle((left, top, left + CELL_W - 1, top + height - 1), background)
-    columns = CELL_W // DOT
+    columns = CELL_W // DOT_W
     per_row = round(density * columns)
     if per_row:
-        for row in range(top // DOT, (top + height) // DOT):
+        for row in range(top // DOT_H, (top + height) // DOT_H):
             for column in range(columns):
                 if (column + row * 2) % columns < per_row:
-                    x, y = left + column * DOT, row * DOT
-                    draw.rectangle((x, y, x + DOT - 1, y + DOT - 1), foreground)
+                    x, y = left + column * DOT_W, row * DOT_H
+                    draw.rectangle((x, y, x + DOT_W - 1, y + DOT_H - 1), foreground)
 
 
 def draw_cell(draw, left, top, upper_tone, lower_tone):

@@ -11,7 +11,7 @@ FRAMES = 44
 FPS = 7
 SCANLINE_PERIOD = 3
 SCANLINE_DARKEN = 0.86
-TINT_STRENGTH = 0.18
+TINT_STRENGTH = 0.30
 TINT_SHADOW, TINT_MID, TINT_HIGHLIGHT = "#071007", "#69ad50", "#edf3df"
 BARREL_X, BARREL_Y, BARREL_RADIAL = 0.022, 0.028, 0.006
 MESH_STEP = 32
@@ -19,6 +19,7 @@ SCREEN_BOX = (9, 9, 791, 532)
 CORNER_RADIUS = 25
 BEZEL = "#0a0a0a"
 NOISE_SEED = 0x435254
+NOISE_BLOCK = 2
 PORTRAIT_BOX = (18, 14, 462, 506)
 # The dark baseline the terminal leaves between character rows. Measured on the
 # reference face strip: a crisp 3px line every 20px, about 24% down. It is laid
@@ -206,7 +207,14 @@ def sweep_frame(frame, mask, index):
 
 
 def add_noise(frame, strength, rng, envelope):
-    noise = Image.frombytes("L", frame.size, rng.randbytes(frame.width * frame.height))
+    # Grain is generated at half resolution and nearest-upscaled, so it moves in
+    # 2x2 blocks. Per-pixel grain changes almost every pixel every frame, which
+    # defeats the GIF's inter-frame compression and doubles the file for motion
+    # nobody can see at this amplitude.
+    coarse = (frame.width // NOISE_BLOCK, frame.height // NOISE_BLOCK)
+    noise = Image.frombytes("L", coarse, rng.randbytes(coarse[0] * coarse[1])).resize(
+        frame.size, Image.Resampling.NEAREST
+    )
     channels = []
     for channel, channel_strength in zip(frame.split(), strength):
         scaled_strength = channel_strength.point(lambda value: round(value * envelope))
@@ -251,8 +259,8 @@ def main(screen_path, out_gif):
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-framerate", str(FPS),
          "-i", str(frames_dir / "crt_%03d.png"), "-filter_complex",
-         "[0:v]split[a][b];[a]palettegen=max_colors=48:stats_mode=full[p];"
-         "[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle", "-loop", "0", out_gif],
+         "[0:v]split[a][b];[a]palettegen=max_colors=72:stats_mode=full[p];"
+         "[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle", "-loop", "0", out_gif],
         check=True,
     )
     print(f"wrote {out_gif} ({pathlib.Path(out_gif).stat().st_size / 1e6:.2f} MB)")
