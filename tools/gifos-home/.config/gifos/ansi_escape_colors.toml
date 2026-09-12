@@ -1,0 +1,25 @@
+# Green-phosphor palette sampled from a cool-retro-term screenshot.
+[phosphor]
+    [phosphor.default_colors]
+    fg = "#92d06f"
+    bg = "#13250f"
+
+    [phosphor.normal_colors]
+    black = "#0d1a0a"
+    red = "#6aa84f"
+    green = "#92d06f"
+    yellow = "#b9e08a"
+    blue = "#5b9c48"
+    magenta = "#7fbe5e"
+    cyan = "#a6da85"
+    white = "#d7e7c4"
+
+    [phosphor.bright_colors]
+    black = "#2a4423"
+    red = "#8cc96a"
+    green = "#a8de84"
+    yellow = "#cdeba3"
+    blue = "#79b862"
+    magenta = "#9ad277"
+    cyan = "#bce39c"
+    white = "#ebf1dd"

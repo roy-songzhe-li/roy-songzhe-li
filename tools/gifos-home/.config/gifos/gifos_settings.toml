@@ -1,0 +1,13 @@
+[general]
+cursor = "█"
+show_cursor = true
+blink_cursor = false
+user_name = "roy"
+fps = 12
+color_scheme = "phosphor"
+loop_count = 0
+
+[files]
+frame_base_name = "frame_"
+frame_folder_name = "build/frames"
+output_gif_name = "build/terminal"

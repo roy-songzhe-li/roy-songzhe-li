@@ -1,0 +1,3 @@
+# gifos is not published to PyPI; install the retro-terminal renderer from source.
+git+https://github.com/x0rzavi/github-readme-terminal.git@main
+Pillow>=10.1.0
