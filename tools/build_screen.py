@@ -16,18 +16,20 @@ from PIL import Image, ImageDraw  # noqa: E402
 from gifos import Terminal  # noqa: E402
 
 WIDTH, HEIGHT, XPAD, YPAD = 800, 541, 22, 14
-PORTRAIT_PX = 424               # matches build_avatar output exactly, so the cells are never resampled
+PORTRAIT_PX = 416               # matches build_avatar output exactly, so the cells are never resampled
 PANEL_COL = 53                  # column where the neofetch panel starts, at the reference's x=490
 # The reference draws labels and values in two greens, not white-on-green - the
 # cream labels this had before were invented and washed the whole panel out.
 LABEL, VALUE = "\x1b[0m", "\x1b[92m"
 CREAM = "\x1b[97m"
 
-# The reference's panel measures a 9px character advance and a 19-20px line pitch;
-# gifos' bundled gohufont is a fixed 8x14 bitmap and cannot be scaled. Monaco at 15
-# gives exactly 9px and 18px tall, so 1px of line spacing lands the 19px pitch.
-FONT_FILE, FONT_SIZE, LINE_SPACING = "/System/Library/Fonts/Monaco.ttf", 15, 1
-CELL_W, CELL_H = 9, 19
+# Terminus is what cool-retro-term's default profile uses, and its thin, angular
+# letterforms are the ones in the reference - Monaco's rounder shapes were visibly
+# wrong. At 18 it measures the reference's 9px advance and 19px height, so 1px of
+# line spacing lands the 20px pitch.
+FONT_FILE = str(HERE / "fonts" / "TerminessNerdFontMono-Regular.ttf")
+FONT_SIZE, LINE_SPACING = 18, 1
+CELL_W, CELL_H = 9, 20
 PROMPT = "roy@mbp$ "
 GREEN = "\x1b[0m"
 
@@ -65,6 +67,19 @@ def build_swatch_bar(target):
     return target
 
 
+def build_terminal():
+    """Build the terminal, correcting gifos' idea of a column's width.
+
+    gifos measures a column as the bounding box of "W", but Terminess' W overhangs
+    its advance - 10px against 9px - so every field would drift a pixel per column.
+    The advance is what the text actually renders at.
+    """
+    terminal = Terminal(WIDTH, HEIGHT, XPAD, YPAD, FONT_FILE, FONT_SIZE, LINE_SPACING)
+    terminal._Terminal__font_width = CELL_W
+    terminal.num_cols = (WIDTH - 2 * XPAD) // CELL_W
+    return terminal
+
+
 def write_field(terminal, label, lines, row):
     """Write a multi-line field, hanging the continuations under the value.
 
@@ -85,7 +100,7 @@ def write_field(terminal, label, lines, row):
 def main(avatar_path, swatch_path, out_path):
     # contin=True everywhere: gifos otherwise auto-scrolls the frame to close the gap
     # under the pasted portrait, which wipes the portrait off the screen.
-    terminal = Terminal(WIDTH, HEIGHT, XPAD, YPAD, FONT_FILE, FONT_SIZE, LINE_SPACING)
+    terminal = build_terminal()
     terminal.toggle_show_cursor(False)
 
     with Image.open(avatar_path) as art:

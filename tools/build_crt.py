@@ -20,12 +20,15 @@ CORNER_RADIUS = 25
 BEZEL = "#0a0a0a"
 NOISE_SEED = 0x435254
 NOISE_BLOCK = 2
+# Saturation already matches; the render just sat about 11 levels darker than the
+# reference across every channel, which reads as "less vivid".
+TUBE_GAIN = 1.12
 PORTRAIT_BOX = (18, 14, 462, 506)
 # The dark baseline the terminal leaves between character rows. Measured on the
 # reference face strip: a crisp 3px line every 20px, about 24% down. It is laid
 # in after the bloom so the glow cannot smear it, but before the warp so it
 # still bends with the tube.
-PORTRAIT_ART_BOX = (22, 14, 446, 494)
+PORTRAIT_ART_BOX = (22, 14, 438, 474)
 ROW_PITCH, ROW_LINE_PX, ROW_LINE_DARKEN = 20, 3, 0.85
 # One refresh band sweeps down the tube per loop. Measured off the reference:
 # it enters near y=20 at frame 8 and reaches y=499 by frame 39, ~16.5px/frame,
@@ -234,10 +237,10 @@ def main(screen_path, out_gif):
     with Image.open(screen_path) as raw:
         screen = raw.convert("RGB")
     mask = screen_mask(screen.size)
-    tube = apply_portrait_tone_curve(
+    tube = ImageEnhance.Brightness(apply_portrait_tone_curve(
         apply_vignette(apply_barrel(apply_character_rows(
             apply_bloom(apply_scanlines(apply_phosphor_tint(screen))))))
-    )
+    )).enhance(TUBE_GAIN)
     base = compose_bezel(tube, mask)
     strength = motion_strength(base, mask)
     noise_rng = random.Random(NOISE_SEED)
