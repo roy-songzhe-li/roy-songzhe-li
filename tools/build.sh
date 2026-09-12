@@ -19,10 +19,16 @@ pick_python() {
 
 mkdir -p "$WORK"
 [ -d "$VENV" ] || "$(pick_python)" -m venv "$VENV"
-"$VENV/bin/pip" install -q --upgrade pip
-"$VENV/bin/pip" install -q -r "$TOOLS/requirements.txt"
+if ! "$VENV/bin/python" -c "import PIL, gifos" >/dev/null 2>&1; then
+  "$VENV/bin/pip" install -q -r "$TOOLS/requirements.txt"
+fi
 
-curl -sSfL -o "$WORK/avatar-source.png" "https://github.com/$USERNAME.png?size=800"
+if curl -sSfL -o "$WORK/avatar-download.png" "https://github.com/$USERNAME.png?size=800"; then
+  mv "$WORK/avatar-download.png" "$WORK/avatar-source.png"
+elif [ ! -s "$WORK/avatar-source.png" ]; then
+  echo "could not download the avatar and no cached source exists" >&2
+  exit 1
+fi
 "$VENV/bin/python" "$TOOLS/build_avatar.py" "$WORK/avatar-source.png" "$REPO/assets/avatar-pixel.png"
 "$VENV/bin/python" "$TOOLS/build_screen.py" "$REPO/assets/avatar-pixel.png" "$WORK/swatch.png" "$WORK/screen.png"
 "$VENV/bin/python" "$TOOLS/build_crt.py" "$WORK/screen.png" "$REPO/assets/crt-profile.gif"

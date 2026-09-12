@@ -1,29 +1,33 @@
 """Age the flat terminal still into a curved, glowing CRT and animate it as a GIF."""
-import math
 import pathlib
+import random
 import subprocess
 import sys
 
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 
-SCANLINE_PERIOD = 3        # a bright row every 3rd row, matching the reference screenshot
-SCANLINE_DARKEN = 0.76
-TINT_STRENGTH = 0.86       # how far every colour is pulled toward the green phosphor ramp
-TINT_SHADOW, TINT_MID, TINT_HIGHLIGHT = "#050b04", "#69ad50", "#ecf4df"
-WARP_MARGIN = 40           # padding added before the barrel warp so nothing is cropped away
-WARP_K1 = -0.055
-BEZEL = "#070c07"
-SCREEN_INSET_X, SCREEN_INSET_Y = 16, 11
-CORNER_RADIUS = 26
-FRAMES = 18
-NOISE_SIGMA = 13
-NOISE_OPACITY = 0.10
-FLICKER = 0.018
-BAND_HEIGHT, BAND_STRENGTH = 100, 14
+FRAMES = 44
+FPS = 7
+SCANLINE_PERIOD = 3
+SCANLINE_DARKEN = 0.86
+TINT_STRENGTH = 0.18
+TINT_SHADOW, TINT_MID, TINT_HIGHLIGHT = "#071007", "#69ad50", "#edf3df"
+BARREL_X, BARREL_Y, BARREL_RADIAL = 0.022, 0.028, 0.006
+MESH_STEP = 32
+SCREEN_BOX = (9, 9, 791, 532)
+CORNER_RADIUS = 25
+BEZEL = "#0a0a0a"
+NOISE_SEED = 0x435254
+PORTRAIT_BOX = (18, 14, 462, 506)
+SWATCH_MOTION_BOX = (486, 196, 724, 252)
+PORTRAIT_TONE_POINTS = (
+    (0, 0), (80, 71), (119, 117), (141, 136), (152, 145), (158, 152), (161, 161),
+    (170, 166), (172, 172), (180, 178), (185, 183), (190, 188), (203, 193),
+    (207, 200), (218, 208), (221, 217), (224, 233), (242, 236), (255, 238),
+)
 
 
 def apply_phosphor_tint(screen):
-    """Pull every colour toward the green phosphor ramp, the way a mono tube would."""
     ramped = ImageOps.colorize(
         ImageOps.grayscale(screen), black=TINT_SHADOW, white=TINT_HIGHLIGHT, mid=TINT_MID
     )
@@ -33,107 +37,172 @@ def apply_phosphor_tint(screen):
 def apply_scanlines(screen):
     mask = Image.new("L", screen.size, 255)
     draw = ImageDraw.Draw(mask)
-    for y in range(screen.height):
-        if y % SCANLINE_PERIOD:
-            draw.line((0, y, screen.width, y), int(255 * SCANLINE_DARKEN))
+    for y in range(SCANLINE_PERIOD - 1, screen.height, SCANLINE_PERIOD):
+        draw.line((0, y, screen.width, y), fill=round(255 * SCANLINE_DARKEN))
     return ImageChops.multiply(screen, Image.merge("RGB", [mask] * 3))
 
 
-def apply_bloom(screen, sigma=5, opacity=0.30):
-    glow = screen.filter(ImageFilter.GaussianBlur(sigma))
-    return Image.blend(screen, ImageChops.screen(screen, glow), opacity)
+def apply_bloom(screen):
+    gate = ImageOps.grayscale(screen).point(lambda value: max(0, min(255, (value - 38) * 3)))
+    emission = ImageChops.multiply(screen, Image.merge("RGB", [gate] * 3))
+    glow = emission.filter(ImageFilter.GaussianBlur(6.5))
+    return Image.blend(screen, ImageChops.screen(screen, glow), 0.62)
 
 
-def apply_barrel(screen, workdir):
-    """Bulge the picture the way a real tube does, via ffmpeg's lenscorrection."""
-    padded = Image.new("RGB", (screen.width + WARP_MARGIN * 2, screen.height + WARP_MARGIN * 2), "#0a1508")
-    padded.paste(screen, (WARP_MARGIN, WARP_MARGIN))
-    source, target = workdir / "pre-warp.png", workdir / "post-warp.png"
-    padded.save(source)
-    subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
-         "-vf", f"lenscorrection=cx=0.5:cy=0.5:k1={WARP_K1}:k2=0:i=bilinear", str(target)],
-        check=True,
+def source_point(x, y, size):
+    width, height = size
+    center_x, center_y = (width - 1) / 2, (height - 1) / 2
+    nx, ny = (x - center_x) / center_x, (y - center_y) / center_y
+    radial = nx * nx + ny * ny
+    return (
+        center_x + (x - center_x) * (1 + BARREL_X * ny * ny + BARREL_RADIAL * radial),
+        center_y + (y - center_y) * (1 + BARREL_Y * nx * nx + BARREL_RADIAL * radial),
     )
-    with Image.open(target) as warped:
-        return warped.convert("RGB").crop(
-            (WARP_MARGIN, WARP_MARGIN, WARP_MARGIN + screen.width, WARP_MARGIN + screen.height)
-        )
+
+
+def apply_barrel(screen):
+    width, height = screen.size
+    mesh = []
+    for top in range(0, height, MESH_STEP):
+        for left in range(0, width, MESH_STEP):
+            right, bottom = min(left + MESH_STEP, width), min(top + MESH_STEP, height)
+            mesh.append(((left, top, right, bottom), (
+                *source_point(left, top, screen.size),
+                *source_point(left, bottom, screen.size),
+                *source_point(right, bottom, screen.size),
+                *source_point(right, top, screen.size),
+            )))
+    return screen.transform(
+        screen.size, Image.Transform.MESH, mesh, Image.Resampling.BICUBIC, fillcolor="#0b1909"
+    )
 
 
 def apply_vignette(screen):
     width, height = screen.size
-    shade = Image.new("L", (width, height), 0)
-    draw = ImageDraw.Draw(shade)
-    steps = 18
-    for step in range(steps):
-        inset = step * 3
-        level = int(255 * (0.58 + 0.42 * (step / steps) ** 0.7))
-        draw.rounded_rectangle(
-            (inset, inset, width - inset, height - inset), radius=CORNER_RADIUS + 30, fill=level
-        )
-    shaded = ImageChops.multiply(screen, Image.merge("RGB", [shade.filter(ImageFilter.GaussianBlur(20))] * 3))
-    # The bloom lifts the blacks; pull them back down and re-saturate the phosphor.
-    graded = ImageEnhance.Contrast(shaded).enhance(1.30)
-    return ImageEnhance.Color(graded).enhance(1.18)
-
-
-def rolling_band(size, position):
-    width, height = size
-    column = Image.new("L", (1, height), 0)
-    pixels = column.load()
+    shade = Image.new("L", screen.size)
+    pixels = []
     for y in range(height):
-        distance = (y - position) / BAND_HEIGHT
-        pixels[0, y] = int(BAND_STRENGTH * math.exp(-distance * distance))
-    return column.resize(size, Image.BILINEAR)
+        vertical = min(y, height - 1 - y) / 24
+        for x in range(width):
+            edge = max(0.0, min(1.0, vertical, min(x, width - 1 - x) / 24))
+            smooth = edge * edge * (3 - 2 * edge)
+            pixels.append(round(255 * (0.47 + 0.53 * smooth)))
+    shade.putdata(pixels)
+    return ImageChops.multiply(screen, Image.merge("RGB", [shade.filter(ImageFilter.GaussianBlur(2))] * 3))
 
 
-def compose_bezel(picture, canvas_size):
-    """Seat the tube picture inside a dark plastic bezel with rounded screen corners."""
-    width, height = canvas_size
-    inner = picture.resize((width - SCREEN_INSET_X * 2, height - SCREEN_INSET_Y * 2), Image.LANCZOS)
-    mask = Image.new("L", inner.size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, inner.width - 1, inner.height - 1), CORNER_RADIUS, 255)
-    mask = mask.filter(ImageFilter.GaussianBlur(1.2))
+def apply_portrait_tone_curve(screen):
+    """Compress the portrait shadows/highlights while preserving its phosphor hue."""
+    lut = []
+    for value in range(256):
+        for (left_x, left_y), (right_x, right_y) in zip(PORTRAIT_TONE_POINTS, PORTRAIT_TONE_POINTS[1:]):
+            if value <= right_x:
+                ratio = (value - left_x) / (right_x - left_x)
+                lut.append(round(left_y + ratio * (right_y - left_y)))
+                break
+    luma = ImageOps.grayscale(screen)
+    target = luma.point(lut)
+    lift = ImageChops.subtract(target, luma)
+    cut = ImageChops.subtract(luma, target)
+    adjusted = ImageChops.subtract(
+        ImageChops.add(screen, Image.merge("RGB", (lift, lift, lift))),
+        Image.merge("RGB", (cut, cut, cut)),
+    )
+    mask = Image.new("L", screen.size)
+    ImageDraw.Draw(mask).rectangle(PORTRAIT_BOX, fill=255)
+    return Image.composite(adjusted, screen, mask)
 
-    canvas = Image.new("RGB", canvas_size, BEZEL)
-    halo = Image.new("RGB", canvas_size, "#000000")
-    halo.paste(inner, (SCREEN_INSET_X, SCREEN_INSET_Y), mask)
-    canvas = ImageChops.screen(canvas, halo.filter(ImageFilter.GaussianBlur(18)))
-    canvas.paste(inner, (SCREEN_INSET_X, SCREEN_INSET_Y), mask)
+
+def screen_mask(size):
+    mask = Image.new("L", size)
+    ImageDraw.Draw(mask).rounded_rectangle(SCREEN_BOX, radius=CORNER_RADIUS, fill=255)
+    return mask.filter(ImageFilter.GaussianBlur(1.0))
+
+
+def compose_bezel(picture, mask):
+    canvas = Image.new("RGB", picture.size, BEZEL)
+    frame = Image.new("RGB", picture.size)
+    draw = ImageDraw.Draw(frame)
+    draw.rounded_rectangle((1, 1, picture.width - 2, picture.height - 2), radius=24, fill="#020502")
+    draw.line((25, 1, picture.width - 26, 1), fill="#080c08", width=2)
+    canvas = ImageChops.screen(canvas, frame.filter(ImageFilter.GaussianBlur(3)))
+    glow = Image.new("RGB", picture.size)
+    glow.paste(picture, mask=mask)
+    canvas = ImageChops.screen(canvas, glow.filter(ImageFilter.GaussianBlur(14)))
+    canvas.paste(picture, mask=mask)
     return canvas
 
 
+def motion_strength(base, mask):
+    luminance = ImageOps.grayscale(base).point(lambda value: round(118 + value * 137 / 255))
+    strengths = []
+    for edge, screen, portrait, panel, swatch in (
+        (5, 19, 26, 31, 49),
+        (7, 28, 30, 40, 36),
+        (5, 20, 26, 32, 34),
+    ):
+        locations = Image.new("L", base.size, edge)
+        draw = ImageDraw.Draw(locations)
+        draw.bitmap((0, 0), mask, fill=screen)
+        draw.rectangle((0, 0, base.width - 1, 12), fill=edge)
+        draw.rectangle((0, base.height - 13, base.width - 1, base.height - 1), fill=edge)
+        draw.rectangle((0, 0, 12, base.height - 1), fill=edge)
+        draw.rectangle((base.width - 13, 0, base.width - 1, base.height - 1), fill=edge)
+        draw.rectangle(PORTRAIT_BOX, fill=portrait)
+        draw.rectangle((484, 14, 782, 218), fill=panel)
+        draw.rectangle(SWATCH_MOTION_BOX, fill=swatch)
+        strengths.append(ImageChops.lighter(
+            Image.new("L", base.size, edge), ImageChops.multiply(locations, luminance)
+        ))
+    return strengths
+
+
+def add_noise(frame, strength, rng, envelope):
+    noise = Image.frombytes("L", frame.size, rng.randbytes(frame.width * frame.height))
+    channels = []
+    for channel, channel_strength in zip(frame.split(), strength):
+        scaled_strength = channel_strength.point(lambda value: round(value * envelope))
+        channels.append(Image.composite(
+            ImageChops.add(channel, noise, offset=-128), channel, scaled_strength
+        ))
+    return Image.merge("RGB", channels)
+
+
 def main(screen_path, out_gif):
-    # Scratch lives beside this script, never next to the published GIF.
     workdir = pathlib.Path(__file__).parent / "build" / "crt"
     frames_dir = workdir / "frames"
-    workdir.mkdir(parents=True, exist_ok=True)
     frames_dir.mkdir(parents=True, exist_ok=True)
     for stale in frames_dir.glob("*.png"):
         stale.unlink()
 
     with Image.open(screen_path) as raw:
         screen = raw.convert("RGB")
-    tube = apply_vignette(
-        apply_barrel(apply_bloom(apply_scanlines(apply_phosphor_tint(screen))), workdir)
+    mask = screen_mask(screen.size)
+    tube = apply_portrait_tone_curve(
+        apply_vignette(apply_barrel(apply_bloom(apply_scanlines(apply_phosphor_tint(screen)))))
     )
+    base = compose_bezel(tube, mask)
+    strength = motion_strength(base, mask)
+    noise_rng = random.Random(NOISE_SEED)
+    drift_rng = random.Random(NOISE_SEED + 1)
+    drift = 0.0
 
-    span = tube.height + BAND_HEIGHT * 4
     for index in range(FRAMES):
-        frame = ImageChops.screen(tube, Image.merge("RGB", [rolling_band(
-            tube.size, -BAND_HEIGHT * 2 + span * index / FRAMES)] * 3))
-        noise = Image.effect_noise(tube.size, NOISE_SIGMA).convert("RGB")
-        frame = Image.blend(frame, ImageChops.add(frame, noise, scale=1.0, offset=-20), NOISE_OPACITY)
-        frame = ImageEnhance.Brightness(frame).enhance(
-            1 + FLICKER * math.sin(index / FRAMES * math.tau * 3))
-        compose_bezel(frame, screen.size).save(frames_dir / f"crt_{index:03d}.png")
+        if index:
+            drift = max(-0.008, min(0.012, drift + drift_rng.uniform(-0.0017, 0.0017)))
+            ramp = 0.57 if index == 1 else 0.70 + 0.24 * min((index - 2) / 16, 1)
+            envelope = ramp * (2.4 if index == 27 else 1)
+            shifted = ImageEnhance.Brightness(base).enhance(1 + drift)
+            frame = add_noise(Image.composite(shifted, base, mask), strength, noise_rng, envelope)
+        else:
+            frame = base
+        frame.save(frames_dir / f"crt_{index:03d}.png")
 
     subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-framerate", "12",
-         "-i", str(frames_dir / "crt_%03d.png"),
-         "-filter_complex", "[0:v] split [a][b];[a] palettegen=max_colors=160 [p];[b][p] paletteuse=dither=bayer:bayer_scale=3",
-         "-loop", "0", out_gif],
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-framerate", str(FPS),
+         "-i", str(frames_dir / "crt_%03d.png"), "-filter_complex",
+         "[0:v]split[a][b];[a]palettegen=max_colors=60:stats_mode=full[p];"
+         "[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle", "-loop", "0", out_gif],
         check=True,
     )
     print(f"wrote {out_gif} ({pathlib.Path(out_gif).stat().st_size / 1e6:.2f} MB)")

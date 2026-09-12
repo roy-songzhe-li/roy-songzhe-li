@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw  # noqa: E402
 from gifos import Terminal  # noqa: E402
 
 WIDTH, HEIGHT, XPAD, YPAD = 800, 541, 22, 14
-PORTRAIT_PX = 444               # on-screen size of the pixel portrait
+PORTRAIT_PX = 435               # width; the source is cell-stretched vertically like the reference
 PANEL_COL = 60                  # column where the neofetch panel starts
 CREAM = "\x1b[97m"
 CELL_W, CELL_H = 8, 18          # gohufont-uni-14 advance plus gifos' line spacing
@@ -25,24 +25,35 @@ GREEN = "\x1b[0m"
 
 FIELDS = [
     ("Name", "Roy Li"),
+    ("Age", "27"),
     ("Site", "roy-li.dev"),
     ("Work", "Aetheron"),
     ("OS", "macOS"),
-    ("Editor", "Neovim"),
 ]
 LANGUAGES = ["TypeScript, Python,", "Java, Lua, Bash"]
-SKILLS = ["Full Stack, AI Agents,", "Cloud Native"]
+SKILLS = ["AI Agents,", "Forward Deployed"]
 
-# GitHub's own language colours; the CRT pass tints them toward phosphor green.
-SWATCH_COLORS = ["#3178c6", "#3572a5", "#b07219", "#000080", "#89e051", "#f1e05a", "#ff3e00", "#dea584"]
-SWATCH_BLOCK, SWATCH_HEIGHT = 26, 30
+# Neofetch's ANSI normal/bright order, calibrated for the reference phosphor response.
+SWATCH_COLORS = [
+    ["#1b4514", "#bc7d1b", "#07fe42", "#e8f354", "#1be172", "#c77b74", "#00f96c", "#93f273"],
+    ["#46a439", "#cac61e", "#bcf769", "#edf744", "#a1f99a", "#d8f28d", "#eef18b", "#ecf5b2"],
+]
+SWATCH_BLOCK, SWATCH_ROW_HEIGHT, SWATCH_TOP_PAD = 28, 21, 7
 
 
 def build_swatch_bar(target):
-    bar = Image.new("RGB", (SWATCH_BLOCK * len(SWATCH_COLORS), SWATCH_HEIGHT), "#13250f")
+    bar = Image.new(
+        "RGB", (SWATCH_BLOCK * len(SWATCH_COLORS[0]), SWATCH_ROW_HEIGHT * 2 + SWATCH_TOP_PAD), "#13250f"
+    )
     draw = ImageDraw.Draw(bar)
-    for index, colour in enumerate(SWATCH_COLORS):
-        draw.rectangle((index * SWATCH_BLOCK, 0, (index + 1) * SWATCH_BLOCK - 1, SWATCH_HEIGHT), colour)
+    for row, colours in enumerate(SWATCH_COLORS):
+        for index, colour in enumerate(colours):
+            draw.rectangle(
+                (index * SWATCH_BLOCK, SWATCH_TOP_PAD + row * SWATCH_ROW_HEIGHT,
+                 (index + 1) * SWATCH_BLOCK - 1,
+                 SWATCH_TOP_PAD + (row + 1) * SWATCH_ROW_HEIGHT - 1),
+                colour,
+            )
     bar.save(target)
     return target
 
@@ -56,7 +67,7 @@ def main(avatar_path, swatch_path, out_path):
     with Image.open(avatar_path) as art:
         terminal.paste_image(avatar_path, 1, 1, size_multiplier=PORTRAIT_PX / art.width)
 
-    row = 2
+    row = 1
     for label, value in FIELDS:
         terminal.gen_text(f"{CREAM}{label}:{GREEN} {value}", row, PANEL_COL, contin=True)
         row += 1
